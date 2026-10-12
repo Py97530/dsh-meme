@@ -1384,6 +1384,11 @@ window.__ModuleLoader__.load({
      * 模块里 —— 同一个页面会话内关掉面板再打开不用重新展开。
      */
     let pickerFiltersOpen = false
+    /**
+     * 面板顶边与宿主顶栏之间留的呼吸间距(px)。顶着顶栏贴脸很难看,留一点点白。
+     * 只在实际被顶栏挡住时才加 —— 面板本来就在下方(没被挡)时加它会白白压矮一截。
+     */
+    const PICKER_TOP_GAP = 12
 
     /**
      * 从图片 url 反推图库 id(issue #30 第 1 条):
@@ -1695,7 +1700,10 @@ window.__ModuleLoader__.load({
             const el = document.elementFromPoint(x, y)
             return !!(el && panel.contains(el))
           }
-          limit = Math.max(16, panelVisibleTop(box.top, bottom, probe))
+          const visibleTop = panelVisibleTop(box.top, bottom, probe)
+          // 被挡住时可见起点就是顶栏下沿,再往下留 PICKER_TOP_GAP 的呼吸间距;没被挡
+          // (可见起点就是面板自己的顶边)就不加,否则面板会白白矮一截、还永远长不回来。
+          limit = Math.max(16, visibleTop > box.top ? visibleTop + PICKER_TOP_GAP : visibleTop)
           panel.style.maxHeight = prev
         } catch (e) { limit = 16 } // 量不出来就退回「只留窗口边距」的老行为
         if (grid && grid.scrollTop !== keep) grid.scrollTop = keep

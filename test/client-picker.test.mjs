@@ -172,12 +172,13 @@ test('面板可见起点:宿主顶栏盖住的那段不算可用高度(issue #33
   // 宿主自己的标题栏(min-height:76px)画在面板上面,把面板盖住 0~76 这一段,
   // 其中正是搜索框 + 筛选开关那一行 —— 用户看到的就是「顶部没了」。
   const covered = (barBottom) => (y) => y >= barBottom
-  // 顶栏 76:可见起点 76,可用高度 = 864 - 76 = 788(面板顶边随后落在 76,不再被盖)
+  // 顶栏 76:可见起点 76(顶栏下沿);再留 12px 呼吸间距 → 可用高度 = 864 - 88 = 776
   assert.equal(panelVisibleTop(16, 864, covered(76)), 76)
-  assert.equal(fitPanelHeight(3928, 864 - panelVisibleTop(16, 864, covered(76))), 788)
+  assert.equal(864 - (panelVisibleTop(16, 864, covered(76)) + 12), 776)
   // 盖住的边界落在哪就是哪(二分精确到 1px,不再被固定步长带偏)
   assert.equal(panelVisibleTop(16, 864, covered(157)), 157)
   assert.equal(panelVisibleTop(200, 864, covered(76)), 200, '顶栏没挡到面板:可见起点就是面板顶边')
+  // 没被挡时不加间距 —— 否则面板会白白矮 12px 且永远长不回来
   assert.equal(864 - panelVisibleTop(200, 864, covered(76)), 664)
   // 面板被整个盖住:可见起点塌到底边 → 可用高度 0,交给 fitPanelHeight 兜最小高度,不出负数
   assert.equal(panelVisibleTop(16, 60, () => false), 60)
