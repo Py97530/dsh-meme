@@ -114,6 +114,25 @@ window.__ModuleLoader__.load({
     }
     const tagZh = (t) => TAG_ZH[t] || t
 
+    // 归属 id:必须等于模块注册 id(loader entry 名 = dsh-meme),宿主按同一个 id 摘标签。
+    const STYLE_OWNER_ID = 'dsh-meme'
+
+    /**
+     * 建一个归属本插件的 <style>。
+     *
+     * 宿主的客户端模块系统在工厂体跑完后才 claimStyles:它把「当时所有无主 style」认到刚
+     * 物化的那个模块名下,那个模块之后一变更(改它自己的 client.js / 热重载)就被
+     * removeOwnedStyles 连标签删掉 —— 表现是设置页整套样式消失、重启宿主才好,且归属由物化
+     * 顺序决定,很难复现(issue #32)。预标记的标签不会被认领,所以每个 style 都要打上。
+     */
+    function createOwnedStyle(css) {
+      const el = document.createElement('style')
+      el.setAttribute('data-plugin', STYLE_OWNER_ID)
+      el.textContent = css
+      document.head.appendChild(el)
+      return el
+    }
+
     async function apiGet(params) {
       const qs = new URLSearchParams()
       if (params.tag) qs.set('tag', params.tag)
@@ -1493,14 +1512,10 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      const styleEl = document.createElement('style')
-      styleEl.textContent = CSS
-      document.head.appendChild(styleEl)
+      const styleEl = createOwnedStyle(CSS)
       ctx.effect(() => () => { styleEl.remove() }, 'dsh-expression-entry: styles')
 
-      const pickerStyle = document.createElement('style')
-      pickerStyle.textContent = memePickerCSS
-      document.head.appendChild(pickerStyle)
+      const pickerStyle = createOwnedStyle(memePickerCSS)
       ctx.effect(() => () => { pickerStyle.remove() }, 'dsh-expression-entry: meme-picker styles')
 
       // 表情文本渲染:[表情: 描述] 或旧格式 [表情: 描述](url) → 图片。
@@ -1849,7 +1864,7 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.inject = inject
     // 纯函数导出仅用于回归测试(node --test),宿主/打包不消费
-    exports.__test = { foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions }
+    exports.__test = { foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions, createOwnedStyle, STYLE_OWNER_ID }
     return module.exports
   },
 })

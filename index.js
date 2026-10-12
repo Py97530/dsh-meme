@@ -1543,9 +1543,15 @@ export function apply(ctx, config) {
     // 尺寸可用 config.memeSize 覆盖(px,默认 160)。
     const memeSize = Number(config?.memeSize) > 0 ? Number(config.memeSize) : 160
     try {
+      // data-plugin 必须打:宿主的客户端模块系统在工厂体跑完后按 claimStyles 认领「当下所有
+      // 无主 style」,这条从文档加载起就存在,谁后物化谁就把它认到自己名下,之后那个模块一
+      // 变更(改自己的 client.js / 热重载)就被 removeOwnedStyles 连标签删掉 —— 小图限高规则
+      // 消失、表情包大图贴脸,而且极难查(issue #32)。值必须是模块注册 id(dsh-meme,与
+      // __ModuleLoader__.load({ id }) 一致):宿主按同一个 id 摘标签,换个名字会在插件卸载后
+      // 留下孤儿规则。
       ctx.effect(() => webServer.tapIndex((html) => html.replace(
         '</head>',
-        '<style>img[src*="/dsh-memes/"]{max-width:' + memeSize + 'px!important;max-height:' + memeSize + 'px!important;width:auto!important;height:auto!important;object-fit:contain;border-radius:8px}</style></head>',
+        '<style data-plugin="dsh-meme">img[src*="/dsh-memes/"]{max-width:' + memeSize + 'px!important;max-height:' + memeSize + 'px!important;width:auto!important;height:auto!important;object-fit:contain;border-radius:8px}</style></head>',
       )), 'dsh-expression: 小图 CSS')
     } catch (error) {
       console.error('[dsh-expression] tapIndex 失败:', error instanceof Error ? error.message : String(error))

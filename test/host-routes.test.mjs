@@ -103,3 +103,15 @@ test('反复关-开多次都稳(issue 里说"只取决于第几次挂载",所以
   }
   unload()
 })
+
+test('tapIndex 注入的小图 CSS 打了 data-plugin=dsh-meme(issue #32)', () => {
+  // 这条从文档加载起就存在,不打标记就是「无主 style」:任何模块物化时都会把它认领走,
+  // 那个模块一变更就被连标签删掉 → 表情包大图贴脸,而且极难查。
+  mod.apply(ctx, {})
+  assert.equal(taps.length, 1)
+  const html = taps[0]('<!doctype html><html><head></head><body></body></html>')
+  assert.ok(html.includes('<style data-plugin="dsh-meme">'), '注入的 <style> 必须带归属标记:' + html.slice(0, 200))
+  assert.ok(html.includes('img[src*="/dsh-memes/"]'), '限高规则本身不能变')
+  assert.ok(html.includes(String(160) + 'px!important'), '默认尺寸仍是 160px')
+  unload()
+})
