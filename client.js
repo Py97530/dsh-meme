@@ -1470,6 +1470,32 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 面板实际可见的第一行(issue #33 后续)。面板锚在输入框上方、向上生长,而宿主自己的
+     * 顶栏(标题行 / 页签)是后画的,会长在面板上面 —— 窗口一高,面板就长进顶栏底下,搜索框
+     * 和筛选开关正好被盖住,用户看到的就是「顶部没了」。
+     *
+     * 命中测试从面板顶往下扫,第一条真正命中面板内部的 y 就是可见起点,它上面那段判给宿主顶栏。
+     * 被盖住的一定是连续的一段、下面是可见的,所以用二分(十次左右探针,而不是逐像素扫几百次)。
+     * 全被盖住(扫不到)时返回底边 —— 由调用方兜最小高度,不至于彻底塌掉。
+     * 纯函数,probe(y) 由调用方注入(浏览器里是 elementFromPoint,测试里给假函数)。
+     */
+    function panelVisibleTop(top, bottom, probe) {
+      const from = Math.ceil(Number(top) || 0)
+      const to = Math.floor(Number(bottom) || 0)
+      if (to <= from) return to
+      if (probe(from)) return from // 面板顶边就没被挡
+      if (!probe(to - 1)) return to // 整块都被挡
+      let lo = from
+      let hi = to - 1
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2)
+        if (probe(mid)) hi = mid
+        else lo = mid + 1
+      }
+      return lo
+    }
+
+    /**
      * 悬浮预览的位置(issue #30 第 2 条):默认浮在格子右侧 10px;右侧放不下(或越出窗口)
      * 翻到左侧;垂直钳制在窗口内(上下各留 8px)—— 面板 overflow:hidden,最下面一排按实测
      * 高度钳制后预览才不会被裁掉。caption 长短不同,预览高度也会变,所以尺寸是实测传进来的。
@@ -1566,6 +1592,7 @@ window.__ModuleLoader__.load({
       const previewRef = React.useRef(null)
       const keepRef = React.useRef(null) // 预览停留区 [格子矩形, 预览框矩形],pointermove 判「还在不在」
       const fitRef = React.useRef(0)
+      const topLimitRef = React.useRef(null) // { limit, nat }:宿主顶栏下沿 + 量它时的自然高度(作失效键)
 
       // 打开时拉全量(packId=all,带包前缀 url):多选筛选和情绪计数都要全量数据。
       // 本机 5 个图库 1645 张约 0.3s / 454KB,换来「跨图库找图不用来回切」;
@@ -1649,37 +1676,68 @@ window.__ModuleLoader__.load({
         }
       }, [hover])
 
+      // 量「宿主顶栏下沿」:面板得先真的长到那个位置才量得出来,所以先把 max-height 放到「底边到
+      // 窗口顶」摆一次(有限值 —— 不是 none),再从面板顶往下命中测试。测完原样还回去。
+      //
+      // 两个坑都踩过:① 量到的一半是「加载中」时的矮面板(那时顶栏根本没挡到它),这个值必须
+      // 跟着内容失效,否则网格出来以后还拿旧值算,面板被压到最小高度;所以缓存按自然高度作键。
+      // ② 这一放一收会改网格的可用高度、把 grid.scrollTop 夹掉(和 #33 同一个坑),量完写回。
+      const measureTopLimit = (panel, bottom, nat) => {
+        const grid = panel.querySelector('.mp-grid')
+        const keep = grid ? grid.scrollTop : 0
+        let limit = 16
+        try {
+          const prev = panel.style.maxHeight
+          panel.style.maxHeight = Math.max(0, bottom - 16) + 'px'
+          const box = panel.getBoundingClientRect()
+          const x = Math.round(box.left + Math.min(box.width / 2, 80))
+          const probe = (y) => {
+            const el = document.elementFromPoint(x, y)
+            return !!(el && panel.contains(el))
+          }
+          limit = Math.max(16, panelVisibleTop(box.top, bottom, probe))
+          panel.style.maxHeight = prev
+        } catch (e) { limit = 16 } // 量不出来就退回「只留窗口边距」的老行为
+        if (grid && grid.scrollTop !== keep) grid.scrollTop = keep
+        topLimitRef.current = { limit, nat }
+        return limit
+      }
+
       // 面板高度自适应:头/筛选不收缩,只有网格内部滚动。自然高度 = 当前高度 + 网格藏起来的那截
       // (见 naturalPanelHeight —— 不再靠撤 max-height 去量,那会把滚动位置夹掉);可用高度 =
-      // 实测底边到窗口顶(上缘留 8px + 8px 余量)。取小就是最终高度。
+      // 实测底边到「宿主顶栏下沿」(见 topLimit,顶栏会盖在面板上面)。取小就是最终高度。
       const fitPanel = () => {
         try {
           const panel = panelRef.current
             || (typeof document.querySelector === 'function' ? document.querySelector('.meme-picker') : null)
           if (!panel) return
           const nat = naturalPanelHeight(panel)
-          const avail = Math.floor(panel.getBoundingClientRect().bottom - 16)
+          const bottom = Math.floor(panel.getBoundingClientRect().bottom)
+          const cached = topLimitRef.current
+          const limit = cached && cached.nat === nat ? cached.limit : measureTopLimit(panel, bottom, nat)
+          const avail = Math.floor(bottom - limit)
           const finalH = fitPanelHeight(nat, avail)
           if (finalH !== fitRef.current) {
             fitRef.current = finalH
             panel.style.maxHeight = finalH + 'px'
           }
           // 排查用现场记录:控制台里一眼看出「新代码有没有加载 / 算出什么」
-          panel.setAttribute('data-meme-picker-fit', 'nat=' + nat + ' avail=' + avail + ' h=' + finalH)
+          panel.setAttribute('data-meme-picker-fit', 'nat=' + nat + ' avail=' + avail + ' h=' + finalH + ' top=' + limit)
         } catch (e) { /* 纯增强:算不出来就退回 CSS 的 46vh,不能影响面板本身 */ }
       }
       useLayout(() => { if (open) fitPanel() })
 
       React.useEffect(() => {
         if (!open) return
-        const onResize = () => fitPanel()
+        // 几何变了(窗口 / 宿主容器 / 输入框高):顶栏下沿要重量,别拿旧值
+        const onResize = () => { topLimitRef.current = null; fitPanel() }
         const win = typeof window !== 'undefined' ? window : null
         if (win && typeof win.addEventListener === 'function') win.addEventListener('resize', onResize)
         let ro = null
         try {
           // 输入框变高(打多行)时宿主容器跟着变 → 面板跟着收紧
           if (typeof ResizeObserver === 'function' && panelRef.current && panelRef.current.parentElement) {
-            ro = new ResizeObserver(() => fitPanel())
+            ro = new ResizeObserver(onResize)
             ro.observe(panelRef.current.parentElement)
           }
         } catch (e) { ro = null }
@@ -2223,7 +2281,7 @@ window.__ModuleLoader__.load({
     exports.__test = {
       foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions,
       createOwnedStyle, STYLE_OWNER_ID,
-      packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, previewPosition, inKeepZone, uniqueKeys,
+      packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, panelVisibleTop, previewPosition, inKeepZone, uniqueKeys,
     }
     return module.exports
   },

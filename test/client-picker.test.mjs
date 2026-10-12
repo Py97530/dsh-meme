@@ -91,7 +91,7 @@ globalThis.fetch = async (url) => {
 await import('../client.js')
 
 const {
-  packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, previewPosition, inKeepZone, uniqueKeys,
+  packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, panelVisibleTop, previewPosition, inKeepZone, uniqueKeys,
 } = globalThis.__dshMeme.__test
 
 // ---------- ① 多选筛选:范围 / 计数 / 交集 ----------
@@ -165,6 +165,25 @@ test('自然高度不靠撤 max-height 去量,网格的滚动位置不会被夹�
   assert.equal(grid.clientHeight, 424)
   // 网格不在(加载中 / 空 / 无匹配):面板没被压,外框高度本身就是自然高度
   assert.equal(naturalPanelHeight({ getBoundingClientRect: () => ({ height: 180 }), querySelector: () => null }), 180)
+})
+
+test('面板可见起点:宿主顶栏盖住的那段不算可用高度(issue #33 后续)', () => {
+  // 真机实测:窗口高 1000、面板底边 864,面板长到 848 时顶边落到 y=16;
+  // 宿主自己的标题栏(min-height:76px)画在面板上面,把面板盖住 0~76 这一段,
+  // 其中正是搜索框 + 筛选开关那一行 —— 用户看到的就是「顶部没了」。
+  const covered = (barBottom) => (y) => y >= barBottom
+  // 顶栏 76:可见起点 76,可用高度 = 864 - 76 = 788(面板顶边随后落在 76,不再被盖)
+  assert.equal(panelVisibleTop(16, 864, covered(76)), 76)
+  assert.equal(fitPanelHeight(3928, 864 - panelVisibleTop(16, 864, covered(76))), 788)
+  // 盖住的边界落在哪就是哪(二分精确到 1px,不再被固定步长带偏)
+  assert.equal(panelVisibleTop(16, 864, covered(157)), 157)
+  assert.equal(panelVisibleTop(200, 864, covered(76)), 200, '顶栏没挡到面板:可见起点就是面板顶边')
+  assert.equal(864 - panelVisibleTop(200, 864, covered(76)), 664)
+  // 面板被整个盖住:可见起点塌到底边 → 可用高度 0,交给 fitPanelHeight 兜最小高度,不出负数
+  assert.equal(panelVisibleTop(16, 60, () => false), 60)
+  assert.equal(fitPanelHeight(3928, 60 - panelVisibleTop(16, 60, () => false)), 180, '全被盖住就兜最小高度,不出负数')
+  // 退化区间(底边不高于顶边)不炸
+  assert.equal(panelVisibleTop(80, 60, () => true), 60)
 })
 
 // ---------- ② 悬浮预览定位 / 关闭时机 ----------
