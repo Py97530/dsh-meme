@@ -1,7 +1,8 @@
 {
   "name": "dsh-meme",
   "version": "0.1.48",
-  "description": "DeepSeek Harness 表情包插件:图库市场一键安装、多图库开关、情绪与关键词搜图、AI 学图,Web 与 QQ 双通道发图。",
+  "description": "DeepSeek Harness 表情包插件：输入框一键发图（图库/情绪多选筛选、悬浮大图预览）、多图库开关、情绪与关键词搜图、AI 学图，图库可从市场一键安装或导入/导出 ZIP。",
+  "icon": "icon.jpg",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/yyh-001/dsh-meme.git"
@@ -16,7 +17,9 @@
     "client.js",
     "cordis.patch.yml",
     "docs/",
+    "icon.jpg",
     "index.js",
+    "locale/",
     "memes.js",
     "memes/",
     "panel.html"
@@ -24,6 +27,7 @@
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
