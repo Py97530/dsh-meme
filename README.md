@@ -14,6 +14,10 @@
   <a href="https://awesome-dsh-plugin.com"><img src="https://awesome-dsh-plugin.com/badge.svg" alt="awesome · DSH plugin" /></a>
 </p>
 
+<p align="center">
+  <strong>中文</strong> · <a href="./README.en.md">English</a>
+</p>
+
 ---
 
 宣传页：**[yyh-001.github.io/dsh-meme](https://yyh-001.github.io/dsh-meme/)**（表情包合集可预览；仓库加 topic [`dsh-meme-pack`](https://github.com/topics/dsh-meme-pack) + `previews/` 即收录）
@@ -240,10 +244,12 @@ dsh-meme/
   memes.js          MemesStore：SQLite 索引 + 情绪桶随机抽图 + 路径安全
   client.js         前端：设置页面板(上传/编辑/删除) + 😊 悬浮窗 + [表情: 描述] 配图
   cordis.patch.yml  bundle patch(纯 insert,热挂载免重启)
+  locale/           插件页展示元信息(en / zh)
   memes/
     dafeiyu-001/    内置大肥鱼（24 张鲸鱼娘）
   package.json      name / inject / peer deps
   README.md
+  README.en.md      英文
   LICENSE
 ```
 
