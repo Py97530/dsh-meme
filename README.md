@@ -36,7 +36,15 @@
 
 ## 安装
 
-已发布到 **npm**（`dsh-meme`），一行装进任意 DSH profile（如 `~/.dsh/profiles/web/`）：
+已发布到 **npm**（`dsh-meme`），两种装法：
+
+**① 客户端里点着装（推荐）**
+
+打开 dsh → 左侧「插件」→ 右上「添加插件」→ 输入 **`dsh-meme`** → 安装。包名就是 npm 上的包名，一条命令都不用敲；「安装源」可以选官方的中国大陆镜像源。同一个入口也接受 GitHub 仓库地址或本地目录路径。装好后插件页里能随时开关，用不惯一键卸载。
+
+**② 命令行**
+
+一行装进任意 DSH profile（如 `~/.dsh/profiles/web/`）：
 
 ```bash
 dsh plugin --profile web add dsh-meme
@@ -46,7 +54,7 @@ pnpm add dsh-meme
 
 旧包名 `dsh-expression` 已弃用，请改用 `dsh-meme`。插件内部 id 仍为 `dsh-expression`，已有安装不受影响。
 
-或从 GitHub / 本地直接装：
+或从 GitHub / 本地直接装（客户端「添加插件」里同样可以直接填这两种地址）：
 
 ```bash
 pnpm add github:yyh-001/dsh-meme   # 或
