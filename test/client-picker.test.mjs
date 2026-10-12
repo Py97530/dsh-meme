@@ -91,7 +91,7 @@ globalThis.fetch = async (url) => {
 await import('../client.js')
 
 const {
-  packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, previewPosition, inKeepZone, uniqueKeys,
+  packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, previewPosition, inKeepZone, uniqueKeys,
 } = globalThis.__dshMeme.__test
 
 // ---------- ① 多选筛选:范围 / 计数 / 交集 ----------
@@ -143,6 +143,28 @@ test('面板高度:自然高度与可用空间取小,兜一个最小高度', () 
   assert.equal(fitPanelHeight(40, 1000), 180, '太矮时兜最小高度')
   assert.equal(fitPanelHeight(0, 0), 180, '量不到就退回最小高度(JS 增强失败也不能塌)')
   assert.equal(fitPanelHeight(1000, 400, 220), 400, '最小高度可覆盖')
+})
+
+test('自然高度不靠撤 max-height 去量,网格的滚动位置不会被夹到顶(issue #33)', () => {
+  // 复刻 bug 现场:旧 fitPanel 把 max-height 撤成 none 再量高,网格的可用高度就等于整块内容高
+  // (clientHeight 424 → 5156),滚动区间归零 → 浏览器把 scrollTop 夹到 0,还原也回不来。
+  // 这个假网格会在 panel.style.maxHeight 被写时照着复现那次夹取。
+  const grid = { scrollHeight: 5156, clientHeight: 424, scrollTop: 3000 }
+  const panel = {
+    style: {},
+    getBoundingClientRect: () => ({ height: 625 }),
+    querySelector: (sel) => (sel === '.mp-grid' ? grid : null),
+  }
+  Object.defineProperty(panel.style, 'maxHeight', {
+    get: () => '',
+    set: () => { grid.clientHeight = grid.scrollHeight; grid.scrollTop = 0 },
+  })
+  // 自然高度 = 外框高度 + 网格里被藏起来的那截(5156 - 424 = 4732)
+  assert.equal(naturalPanelHeight(panel), 625 + 4732)
+  assert.equal(grid.scrollTop, 3000, '量高不能写样式:一写就会把滚动位置夹到顶')
+  assert.equal(grid.clientHeight, 424)
+  // 网格不在(加载中 / 空 / 无匹配):面板没被压,外框高度本身就是自然高度
+  assert.equal(naturalPanelHeight({ getBoundingClientRect: () => ({ height: 180 }), querySelector: () => null }), 180)
 })
 
 // ---------- ② 悬浮预览定位 / 关闭时机 ----------
@@ -206,6 +228,18 @@ const byClass = (tree, cls) => {
 }
 const chipWith = (tree, label) => byClass(tree, 'mp-tag').find((n) => textOf(n).includes(label))
 
+/**
+ * 把筛选区摆成想要的状态再点 chip。展开状态记在模块级(关掉面板再打开要还在),
+ * 于是同一个测试文件里会互相串 —— 每个用 chip 的用例先过一道这个,别依赖执行顺序。
+ */
+const ensureFilters = (tree, repaint, want = true) => {
+  if ((byClass(tree, 'mp-filter-row').length > 0) === want) return tree
+  const tg = byClass(tree, 'mp-toggle')[0]
+  assert.ok(tg, '筛选开关必须在(收起时也得有入口)')
+  tg.props.onClick()
+  return repaint()
+}
+
 /** 装一遍插件并打开面板,返回当前这棵树 + 重绘函数 + setDraft 记录 */
 const openBoard = async () => {
   stateCells = []
@@ -240,20 +274,48 @@ const openBoard = async () => {
   return { board: repaint(), repaint, calls }
 }
 
-test('打开面板拉的是全量(packId=all),默认不筛就是跨图库全部', async () => {
+// 注意:这个用例必须排在最前 —— 面板首次渲染的默认状态(筛选收起)只在这里是原生的,
+// 之后的用例会按需把筛选区展开,而展开状态是模块级记忆的。
+test('打开面板拉的是全量(packId=all),默认不筛就是跨图库全部;筛选区默认收起', async () => {
   fetched.length = 0
   const { board } = await openBoard()
   assert.ok(fetched.some((u) => u.includes('packId=all')), '多选筛选/情绪计数要全量数据:' + fetched.join(' '))
   assert.equal(byClass(board, 'mp-cell').length, 5, '两个图库的图都要出来')
   assert.equal(textOf(byClass(board, 'mp-count')[0]), '共 5 张')
-  assert.ok(chipWith(board, '包一'), '图库 chip 应带名字')
-  assert.ok(chipWith(board, '包二'))
+  // 图库一多,两排 chip 能吃掉大半个面板;默认收起,只留一个开关
+  assert.equal(byClass(board, 'mp-filter-row').length, 0, '默认不铺 chip')
+  assert.equal(chipWith(board, '包一'), undefined)
+  assert.equal(textOf(chipWith(board, '筛选')), '筛选 ▼', '收起时要有带方向的开关')
+  assert.equal(chipWith(board, '筛选').props['aria-expanded'], 'false')
+})
+
+test('筛选区:点开关展开出两排 chip,再点收起;选中状态与开关上的计数都留着', async () => {
+  const { board, repaint } = await openBoard()
+  let tree = ensureFilters(board, repaint, false)
+  const toggle = chipWith(tree, '筛选')
+  toggle.props.onClick()
+  tree = repaint()
+  assert.equal(byClass(tree, 'mp-filter-row').length, 2, '展开后是图库 + 情绪两排')
+  assert.equal(chipWith(tree, '筛选').props['aria-expanded'], 'true')
+  assert.ok(chipWith(tree, '包一'), '图库 chip 带名字')
+  assert.equal(textOf(chipWith(tree, '包一')), '包一 3', 'chip 上带张数')
+  assert.ok(chipWith(tree, '开心'), '情绪 chip 用中文标签')
+  // 收起:chip 全部撤掉,但已经选中的筛选仍然生效,开关上还要看得出选了几个
+  chipWith(tree, '包二').props.onClick()
+  tree = repaint()
+  chipWith(tree, '筛选').props.onClick()
+  tree = repaint()
+  assert.equal(byClass(tree, 'mp-filter-row').length, 0, '收起后 chip 不渲染')
+  assert.equal(textOf(chipWith(tree, '筛选')), '筛选 1 ▼', '开关上显示选中的筛选个数')
+  assert.equal(textOf(byClass(tree, 'mp-count')[0]), '共 2 张', '收起不等于清空筛选')
+  assert.equal(byClass(tree, 'mp-cell').length, 2)
 })
 
 test('图库 chip 多选:点一下只看它,再点取消;情绪 chip 跟着重新派生', async () => {
   const { board, repaint } = await openBoard()
-  assert.equal(textOf(chipWith(board, '包一')), '包一 3', 'chip 上要带张数')
-  chipWith(board, '包二').props.onClick()
+  let tree = ensureFilters(board, repaint)
+  assert.equal(textOf(chipWith(tree, '包一')), '包一 3', 'chip 上要带张数')
+  chipWith(tree, '包二').props.onClick()
   const filtered = repaint()
   assert.equal(textOf(byClass(filtered, 'mp-count')[0]), '共 2 张')
   assert.equal(byClass(filtered, 'mp-cell').length, 2)
@@ -266,8 +328,9 @@ test('图库 chip 多选:点一下只看它,再点取消;情绪 chip 跟着重�
 
 test('情绪 chip 多选 + 搜索框:两层取交集,清空一键复位', async () => {
   const { board, repaint } = await openBoard()
-  chipWith(board, '难过').props.onClick()
-  let tree = repaint()
+  let tree = ensureFilters(board, repaint)
+  chipWith(tree, '难过').props.onClick()
+  tree = repaint()
   assert.equal(textOf(byClass(tree, 'mp-count')[0]), '共 1 张')
   // 搜一个跟「难过」不沾边的词 → 交集为空
   byClass(tree, 'mp-search')[0].props.onChange({ target: { value: '开心' } })

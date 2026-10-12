@@ -1291,6 +1291,9 @@ window.__ModuleLoader__.load({
       '.meme-picker .mp-clear{flex:none;padding:4px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:11px}',
       '.meme-picker .mp-clear:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
       '.meme-picker .mp-count{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      // 筛选区开关:复用 chip(.mp-tag)的外观,右侧小三角表示展开/收起
+      '.meme-picker .mp-toggle{flex:none}',
+      '.meme-picker .mp-toggle .caret{margin-left:4px;font-size:9px;line-height:1;opacity:.75}',
       '.meme-picker .mp-filters{flex:none;display:flex;flex-direction:column;gap:6px;max-height:min(168px,32vh);overflow-y:auto}',
       '.meme-picker .mp-filter-row{display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap}',
       '.meme-picker .mp-filter-label{flex:none;width:26px;font-size:11px;line-height:21px;color:var(--dsw-alias-label-secondary)}',
@@ -1375,6 +1378,12 @@ window.__ModuleLoader__.load({
     let pickerCache = null
     /** 一次渲染的表情格上限:上千张全铺出来就是上千个 DOM 节点 + 上千个图片请求,不值得。 */
     const PICKER_MAX_CELLS = 240
+    /**
+     * 筛选区(图库 / 情绪两排 chip)是否展开。默认收起:图库一多,两排 chip 能占掉小面板的
+     * 一多半高度,把网格挤没;收起后只剩一个带计数的「筛选」按钮,发现性还在。展开状态记在
+     * 模块里 —— 同一个页面会话内关掉面板再打开不用重新展开。
+     */
+    let pickerFiltersOpen = false
 
     /**
      * 从图片 url 反推图库 id(issue #30 第 1 条):
@@ -1439,6 +1448,25 @@ window.__ModuleLoader__.load({
       const nat = Math.ceil(Number(natural) || 0)
       const room = Math.floor(Number(available) || 0)
       return Math.max(min, Math.min(nat || min, room || min))
+    }
+
+    /**
+     * 面板的「自然高度」= 当前外框高度 + 网格里被藏起来的那截(issue #33)。
+     *
+     * 早先是靠临时把 max-height 撤成 none 量出来的,但那样一来网格的可用高度等于整块内容高,
+     * 滚动区间归零 —— 浏览器立刻把 scrollTop 夹到 0,还原 max-height 也回不来。于是每次重绘
+     * 都要量的路径(鼠标扫过格子要看悬浮预览)都会把列表顶掉,并排的图库 chip 也白滚一趟。
+     *
+     * 不碰样式也能量:面板被 max-height 压住时,压掉的那部分全由网格(唯一的 flex:1 收缩项)
+     * 吸收,溢出的量正好等于少掉的高度,加回去就是自然高度。网格不存在(加载中/空/无匹配)时
+     * 面板没被压,外框高度本身就是自然高度。
+     */
+    function naturalPanelHeight(panel) {
+      const outer = Math.ceil(Number(panel.getBoundingClientRect().height) || 0)
+      const grid = panel.querySelector('.mp-grid')
+      if (!grid) return outer
+      const hidden = Number(grid.scrollHeight) - Number(grid.clientHeight)
+      return outer + (hidden > 0 ? Math.ceil(hidden) : 0)
     }
 
     /**
@@ -1532,6 +1560,7 @@ window.__ModuleLoader__.load({
       const [q, setQ] = React.useState('')
       const [selPacks, setSelPacks] = React.useState([]) // 空 = 不筛:全部图库
       const [selTags, setSelTags] = React.useState([])   // 空 = 不筛:全部情绪
+      const [showFilters, setShowFilters] = React.useState(() => pickerFiltersOpen) // 筛选区展开状态(默认收起)
       const [hover, setHover] = React.useState(null)     // 悬浮预览:{ meme, cellRect }
       const panelRef = React.useRef(null)
       const previewRef = React.useRef(null)
@@ -1620,17 +1649,15 @@ window.__ModuleLoader__.load({
         }
       }, [hover])
 
-      // 面板高度自适应:头/筛选不收缩,只有网格内部滚动。自然高度 = 清掉 max-height 后量到的
-      // 高度;可用高度 = 实测底边到窗口顶(上缘留 8px + 8px 余量)。取小就是最终高度。
+      // 面板高度自适应:头/筛选不收缩,只有网格内部滚动。自然高度 = 当前高度 + 网格藏起来的那截
+      // (见 naturalPanelHeight —— 不再靠撤 max-height 去量,那会把滚动位置夹掉);可用高度 =
+      // 实测底边到窗口顶(上缘留 8px + 8px 余量)。取小就是最终高度。
       const fitPanel = () => {
         try {
           const panel = panelRef.current
             || (typeof document.querySelector === 'function' ? document.querySelector('.meme-picker') : null)
           if (!panel) return
-          const prev = panel.style.maxHeight
-          panel.style.maxHeight = 'none'
-          const nat = Math.ceil(panel.getBoundingClientRect().height)
-          panel.style.maxHeight = prev
+          const nat = naturalPanelHeight(panel)
           const avail = Math.floor(panel.getBoundingClientRect().bottom - 16)
           const finalH = fitPanelHeight(nat, avail)
           if (finalH !== fitRef.current) {
@@ -1681,6 +1708,9 @@ window.__ModuleLoader__.load({
       const toggle = (list, setList, id) => setList(list.includes(id) ? list.filter((x) => x !== id) : list.concat([id]))
       const clearAll = () => { setQ(''); setSelPacks([]); setSelTags([]) }
       const hasFilter = !!(q.trim() || selPacks.length || selTags.length)
+      const selCount = selPacks.length + selTags.length
+      // 展开状态记到模块级:面板关掉再打开不用重新展开(同一页面会话内)
+      const toggleFilters = () => { const next = !showFilters; pickerFiltersOpen = next; setShowFilters(next) }
 
       const tagCounts = pickerTagCounts(data.memes, selPacks)
       const rows = pickerFilter(data.memes, selPacks, selTags, q)
@@ -1729,33 +1759,44 @@ window.__ModuleLoader__.load({
             onKeyDown: (e) => { if (e.key === 'Escape') { setQ(''); if (e.currentTarget && e.currentTarget.blur) e.currentTarget.blur() } },
           }),
           hasFilter ? h('button', { type: 'button', className: 'mp-clear', onClick: clearAll }, '清空') : null,
+          // 筛选区默认收起(图库一多两排 chip 能吃掉大半个面板);有选中的筛选就显示选了几个,免得收起时看不出来
+          h('button', {
+            type: 'button',
+            className: 'mp-tag mp-toggle' + (selCount ? ' on' : ''),
+            title: showFilters ? '收起筛选' : '展开筛选(按图库 / 情绪挑图)',
+            'aria-expanded': showFilters ? 'true' : 'false',
+            onClick: toggleFilters,
+          }, '筛选' + (selCount ? ' ' + selCount : ''), h('span', { className: 'caret' }, showFilters ? '▲' : '▼')),
           h('span', { className: 'mp-count' }, '共 ' + rows.length + ' 张'),
         ),
         // 两排多选 chip:都不选 = 不筛。情绪只列当前图库范围内真实存在的,按数量降序带计数。
-        h('div', { className: 'mp-filters' },
-          packChips.length
-            ? h('div', { className: 'mp-filter-row' },
-              h('span', { className: 'mp-filter-label' }, '图库'),
-              packChips.map((p) => h('button', {
-                type: 'button', key: p.id,
-                className: 'mp-tag' + (selPacks.includes(p.id) ? ' on' : ''),
-                title: '点一下只看这个图库;再点取消。都不点 = 全部图库',
-                onClick: () => toggle(selPacks, setSelPacks, p.id),
-              }, p.name, h('span', { className: 'n' }, String(p.count)))),
-            )
-            : null,
-          tagCounts.length
-            ? h('div', { className: 'mp-filter-row' },
-              h('span', { className: 'mp-filter-label' }, '情绪'),
-              tagCounts.map((t) => h('button', {
-                type: 'button', key: t.tag,
-                className: 'mp-tag' + (selTags.includes(t.tag) ? ' on' : ''),
-                title: '点一下只看这个情绪;再点取消。都不点 = 全部情绪',
-                onClick: () => toggle(selTags, setSelTags, t.tag),
-              }, tagZh(t.tag), h('span', { className: 'n' }, String(t.count)))),
-            )
-            : null,
-        ),
+        // 收起时不渲染(而不是 display:none):省掉几十个 chip 的节点与重排。
+        showFilters
+          ? h('div', { className: 'mp-filters' },
+            packChips.length
+              ? h('div', { className: 'mp-filter-row' },
+                h('span', { className: 'mp-filter-label' }, '图库'),
+                packChips.map((p) => h('button', {
+                  type: 'button', key: p.id,
+                  className: 'mp-tag' + (selPacks.includes(p.id) ? ' on' : ''),
+                  title: '点一下只看这个图库;再点取消。都不点 = 全部图库',
+                  onClick: () => toggle(selPacks, setSelPacks, p.id),
+                }, p.name, h('span', { className: 'n' }, String(p.count)))),
+              )
+              : null,
+            tagCounts.length
+              ? h('div', { className: 'mp-filter-row' },
+                h('span', { className: 'mp-filter-label' }, '情绪'),
+                tagCounts.map((t) => h('button', {
+                  type: 'button', key: t.tag,
+                  className: 'mp-tag' + (selTags.includes(t.tag) ? ' on' : ''),
+                  title: '点一下只看这个情绪;再点取消。都不点 = 全部情绪',
+                  onClick: () => toggle(selTags, setSelTags, t.tag),
+                }, tagZh(t.tag), h('span', { className: 'n' }, String(t.count)))),
+              )
+              : null,
+          )
+          : null,
         data.memes.length === 0
           ? h('div', { className: 'mp-empty' }, loaded ? '还没有可发的表情包' : '加载中…')
           : (rows.length === 0
@@ -2182,7 +2223,7 @@ window.__ModuleLoader__.load({
     exports.__test = {
       foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions,
       createOwnedStyle, STYLE_OWNER_ID,
-      packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, previewPosition, inKeepZone, uniqueKeys,
+      packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, naturalPanelHeight, previewPosition, inKeepZone, uniqueKeys,
     }
     return module.exports
   },
