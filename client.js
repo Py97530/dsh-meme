@@ -1315,6 +1315,14 @@ window.__ModuleLoader__.load({
       '.meme-picker .mp-hover-tag{align-self:flex-start;font-size:10px;color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);border-radius:999px;padding:1px 8px}',
       '.meme-picker .mp-hover-cap{font-size:12px;line-height:1.45;max-height:3.9em;overflow:hidden;word-break:break-word}',
       '.meme-picker .mp-hover-file{font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      // 玻璃背板:面板与悬浮预览改用与宿主输入框同款的底色,再叠一层 backdrop-filter。
+      // 底色取输入框令牌 --dsw-specific-input-major —— 宿主/主题把它做成半透明玻璃时,
+      // 面板就跟着透出背后的聊天内容;它是实色时这条规则等于没写(观感与原来完全一致)。
+      // --meme-glass-alpha 是留给使用者的覆盖口子:默认 100%(等价于直接用底色,行为与
+      // 不写这条规则完全一致),嫌不够透就自己在主题 CSS 里设成 70% 之类,不必改这张表。
+      // --we-* 由 dsh-plugin-wallpaper-engine 写入,装了联动、没装走下面的 fallback,
+      // 所以这里不是硬依赖(少了那个插件一样能用,只是模糊参数取默认值)。
+      '.meme-picker,.meme-picker .mp-hover{background-color:color-mix(in srgb,var(--dsw-specific-input-major,var(--dsw-alias-bg-layer-1)) var(--meme-glass-alpha,100%),transparent);background-image:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.045) 42%,rgba(255,255,255,.015));-webkit-backdrop-filter:blur(var(--we-blur,14px)) saturate(var(--we-saturate,1.6)) brightness(var(--we-glass-brightness,1.03));backdrop-filter:blur(var(--we-blur,14px)) saturate(var(--we-saturate,1.6)) brightness(var(--we-glass-brightness,1.03))}',
     ].join('')
 
     /**
