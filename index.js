@@ -22,7 +22,7 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   MemesStore, defaultPacksDir, scanPacks, readPackMeta, isPackDir,
   resolveActiveRoot, liveStore, registerSendMemeTool, dshHome, enabledPackIds, packDeleteDir,
-  searchRows,
+  searchRows, prunePackKeywords,
 } from './memes.js'
 
 // ---- 极简 ZIP(store 无压缩)读写:零依赖导出/导入图库包 ----
@@ -889,6 +889,16 @@ export function apply(ctx, config) {
         }
         const verifyDb = new DatabaseSync(join(stageAbs, 'index.db'), { readOnly: true })
         try { verifyDb.prepare('SELECT COUNT(*) AS n FROM memes').get() } finally { verifyDb.close() }
+        // 导入的图库常带站点级大标签(出现在几乎每条 keywords 里),对检索零信息量,
+        // 还会让搜那些词命中全库(issue #30 附带的建议)。纯增强,失败不影响导入。
+        try {
+          const pruned = prunePackKeywords(join(stageAbs, 'index.db'))
+          if (pruned.drop.length) {
+            console.log('[dsh-expression] 图库 ' + id + ':剔除 ' + pruned.drop.length + ' 个高频关键词(改动 ' + pruned.changed + ' 条)- ' + pruned.drop.join(' '))
+          }
+        } catch (error) {
+          console.warn('[dsh-expression] 高频关键词清洗跳过:', error instanceof Error ? error.message : String(error))
+        }
 
         const replacingActive = resolve(memes.root) === targetAbs
         if (replacingActive) {
@@ -1065,6 +1075,15 @@ export function apply(ctx, config) {
           })
         } finally {
           db.close()
+        }
+        // 清单下载的图库同样清洗一遍高频关键词(与 ZIP 安装路径一致,见 prunePackKeywords)
+        try {
+          const pruned = prunePackKeywords(join(workDir, 'index.db'))
+          if (pruned.drop.length) {
+            console.log('[dsh-expression] 图库 ' + manifest.id + ':剔除 ' + pruned.drop.length + ' 个高频关键词(改动 ' + pruned.changed + ' 条)- ' + pruned.drop.join(' '))
+          }
+        } catch (error) {
+          console.warn('[dsh-expression] 高频关键词清洗跳过:', error instanceof Error ? error.message : String(error))
         }
         writeFileSync(join(workDir, SIDECAR_NAME), JSON.stringify({
           manifestUrl: sourceUrl, id: manifest.id, name: manifest.name, version: manifest.version, lastSync: Date.now(),

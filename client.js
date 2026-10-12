@@ -1273,20 +1273,45 @@ window.__ModuleLoader__.load({
     }
 
     // ---- 输入框快捷发图(QQ 式):😊 按钮 + 悬浮面板 ----
+    // 尺寸规则(issue #30 第 3 条):整个面板高度自适应,头/筛选不收缩,只有网格内部滚动。
+    // position 保持原来的 absolute + bottom:calc(100% + 8px)(锚点由宿主那层输入区容器给),
+    // 千万别在这条规则里重写 position —— 同优先级后出现者胜,覆盖成 relative 会让锚点失效、
+    // 面板掉到输入框下面(这条踩过一次,排查很久)。
     const memePickerCSS = [
       '.meme-trigger{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;cursor:pointer;color:var(--dsw-alias-label-secondary);background:transparent;border:none;line-height:1;outline:none;transition:background .12s,color .12s}',
       '.meme-trigger:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
       '.meme-trigger.active{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 10%,transparent)}',
-      '.meme-picker{position:absolute;bottom:calc(100% + 8px);left:0;width:min(360px,90vw);z-index:30;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:10px;padding:12px;max-height:46vh;overflow:hidden;font-size:12px;color:var(--dsw-alias-label-primary)}',
-      '.meme-picker .mp-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
-      '.meme-picker .mp-tabs{display:flex;gap:4px;align-items:center;overflow-x:auto;max-width:100%;padding-bottom:2px}',
+      // box-sizing 必须是 border-box:高度自适应是拿 getBoundingClientRect 量的(带 padding/border),
+      // 而 max-height 默认按 content-box 算 —— 少了这句,面板实际比算出来的高一个 padding+border,
+      // 上缘直接顶到视口外面去(实测 607px 的上限渲染成 633px、top=-10)。
+      '.meme-picker{position:absolute;bottom:calc(100% + 8px);left:0;box-sizing:border-box;width:min(392px,92vw);z-index:30;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:8px;padding:12px;max-height:min(46vh,calc(100vh - 32px));overflow:hidden;font-size:12px;color:var(--dsw-alias-label-primary)}',
+      '.meme-picker .mp-head{display:flex;gap:6px;align-items:center;flex:none}',
+      '.meme-picker .mp-search{flex:1 1 auto;min-width:0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:5px 9px;font-size:12px;outline:none;transition:border-color .12s ease}',
+      '.meme-picker .mp-search:focus{border-color:var(--dsw-alias-brand-primary)}',
+      '.meme-picker .mp-clear{flex:none;padding:4px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:11px}',
+      '.meme-picker .mp-clear:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
+      '.meme-picker .mp-count{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.meme-picker .mp-filters{flex:none;display:flex;flex-direction:column;gap:6px;max-height:min(168px,32vh);overflow-y:auto}',
+      '.meme-picker .mp-filter-row{display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap}',
+      '.meme-picker .mp-filter-label{flex:none;width:26px;font-size:11px;line-height:21px;color:var(--dsw-alias-label-secondary)}',
       '.meme-picker .mp-tag{padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);cursor:pointer;background:transparent;color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap;flex:none;transition:background .12s,color .12s,border-color .12s}',
       '.meme-picker .mp-tag:hover{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
       '.meme-picker .mp-tag.on{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-layer-1)}',
-      '.meme-picker .mp-grid{overflow-y:auto;display:flex;flex-wrap:wrap;gap:8px;max-height:38vh;padding:2px}',
-      '.meme-picker .mp-cell{width:76px;height:76px;flex:0 0 76px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;overflow:hidden;cursor:pointer;background:var(--dsw-alias-bg-layer-2);padding:0;display:block;transition:border-color .12s,transform .12s,box-shadow .12s}',
+      '.meme-picker .mp-tag .n{opacity:.65;margin-left:3px;font-size:10px}',
+      // min-height:0 是必须的:flex 子项的默认 min-height:auto 会按内容撑开,网格就不收缩了,
+      // 面板会被撑破(而不是出现滚动条)。
+      '.meme-picker .mp-grid{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-wrap:wrap;gap:8px;padding:2px}',
+      '.meme-picker .mp-cell{width:76px;height:76px;flex:0 0 76px;border:1px solid var(--dsw-alias-border-l1);border-radius:11px;overflow:hidden;cursor:pointer;background-color:var(--dsw-alias-bg-layer-2);background-size:cover;background-position:center center;background-repeat:no-repeat;padding:0;display:block;transition:border-color .12s,transform .12s,box-shadow .12s}',
       '.meme-picker .mp-cell:hover{border-color:var(--dsw-alias-brand-primary);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.15)}',
       '.meme-picker .mp-empty{color:var(--dsw-alias-label-secondary);text-align:center;padding:28px 0}',
+      '.meme-picker .mp-hint{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary);text-align:center}',
+      // 悬浮预览(issue #30 第 2 条):fixed + pointer-events:none,浮在格子旁边不挡点击;
+      // 位置在 layout effect 里按实测尺寸算(右侧放不下翻左边、垂直钳制),见 MemeBoard。
+      '.meme-picker .mp-hover{position:fixed;z-index:60;width:176px;pointer-events:none;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:8px;box-shadow:0 12px 32px rgba(0,0,0,.32);display:flex;flex-direction:column;gap:6px}',
+      '.meme-picker .mp-hover-img{width:144px;height:144px;margin:0 auto;border-radius:8px;background-color:var(--dsw-alias-bg-base);background-size:contain;background-position:center center;background-repeat:no-repeat}',
+      '.meme-picker .mp-hover-tag{align-self:flex-start;font-size:10px;color:var(--dsw-alias-brand-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent);border-radius:999px;padding:1px 8px}',
+      '.meme-picker .mp-hover-cap{font-size:12px;line-height:1.45;max-height:3.9em;overflow:hidden;word-break:break-word}',
+      '.meme-picker .mp-hover-file{font-size:10px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     ].join('')
 
     /**
@@ -1346,6 +1371,123 @@ window.__ModuleLoader__.load({
       return x >= 1000 ? (Math.round(x / 100) / 10) + 'k' : String(x)
     }
 
+    /** 悬浮面板上次拉到的全量数据;再次打开先拿它渲染,后台再刷新(图库多时首屏不闪)。 */
+    let pickerCache = null
+    /** 一次渲染的表情格上限:上千张全铺出来就是上千个 DOM 节点 + 上千个图片请求,不值得。 */
+    const PICKER_MAX_CELLS = 240
+
+    /**
+     * 从图片 url 反推图库 id(issue #30 第 1 条):
+     * `?packId=all` 的每行只有 path/tag/file_name/caption/keywords/url —— 没有 packId,
+     * 图库只能从 url 前缀推(url 形如 /dsh-memes/<packId>/memes/<tag>/<file>);
+     * 单图库的返回同样没有这个字段,所以这条对两种响应都适用。
+     */
+    function packOfUrl(url) {
+      const u = String(url || '')
+      const at = u.indexOf('/dsh-memes/')
+      if (at < 0) return ''
+      const rest = u.slice(at + '/dsh-memes/'.length)
+      const cut = rest.indexOf('/')
+      return cut > 0 ? rest.slice(0, cut) : ''
+    }
+
+    /** 图库多选的范围:空数组 = 不筛(全部图库) */
+    function pickerPackScope(memes, selPacks) {
+      const rows = Array.isArray(memes) ? memes : []
+      if (!selPacks || selPacks.length === 0) return rows
+      return rows.filter((m) => selPacks.includes(packOfUrl(m.url)))
+    }
+
+    /**
+     * 情绪 chip 的可选项与计数:只列「当前图库选择范围内」真实存在的情绪,按数量降序
+     * (数量相同按 tag 名,保证顺序稳定)。
+     */
+    function pickerTagCounts(memes, selPacks) {
+      const counts = new Map()
+      for (const m of pickerPackScope(memes, selPacks)) {
+        const tag = String(m.tag || '').trim()
+        if (!tag) continue
+        counts.set(tag, (counts.get(tag) || 0) + 1)
+      }
+      return [...counts].map(([tag, count]) => ({ tag, count }))
+        .sort((a, b) => (b.count - a.count) || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0))
+    }
+
+    /** 结果 = 文字搜索 ∩ 所选图库 ∩ 所选情绪。搜索按空格分词、全命中(与市场搜索一致)。 */
+    function pickerFilter(memes, selPacks, selTags, query) {
+      let rows = pickerPackScope(memes, selPacks)
+      if (selTags && selTags.length) rows = rows.filter((m) => selTags.includes(String(m.tag || '').trim()))
+      const tokens = String(query || '').toLowerCase().split(/\s+/).filter(Boolean)
+      if (tokens.length) {
+        rows = rows.filter((m) => {
+          // 标签的中文显示也进 haystack:chip 上写的是「开心」,用户就会照着打「开心」,
+          // 而库里存的是 happy(与情绪筛选同义,不会多出意外的结果)
+          const hay = ((m.tag || '') + ' ' + tagZh(m.tag || '') + ' ' + (m.caption || '') + ' ' + (m.keywords || '') + ' ' + (m.file_name || '')).toLowerCase()
+          return tokens.every((t) => hay.includes(t))
+        })
+      }
+      return rows
+    }
+
+    /**
+     * 面板高度(issue #30 第 3 条):自然高度与「上缘不越窗口顶」的可用高度取小,再兜一个
+     * 最小高度。available 由调用方按实测底边算出 —— 面板底边本来就贴着输入框(absolute +
+     * bottom:calc(100% + 8px)),所以能长多高 = 底边到窗口顶。
+     */
+    function fitPanelHeight(natural, available, floor = 180) {
+      const min = Number(floor) > 0 ? Number(floor) : 180
+      const nat = Math.ceil(Number(natural) || 0)
+      const room = Math.floor(Number(available) || 0)
+      return Math.max(min, Math.min(nat || min, room || min))
+    }
+
+    /**
+     * 悬浮预览的位置(issue #30 第 2 条):默认浮在格子右侧 10px;右侧放不下(或越出窗口)
+     * 翻到左侧;垂直钳制在窗口内(上下各留 8px)—— 面板 overflow:hidden,最下面一排按实测
+     * 高度钳制后预览才不会被裁掉。caption 长短不同,预览高度也会变,所以尺寸是实测传进来的。
+     */
+    function previewPosition(cell, size, viewport) {
+      const w = Number(size && size.width) || 176
+      const hh = Number(size && size.height) || 184
+      const vw = Number(viewport && viewport.width) || 0
+      const vh = Number(viewport && viewport.height) || 0
+      let left = cell.right + 10
+      if (vw && left + w > vw - 8) left = cell.left - 10 - w
+      if (left < 8) left = 8
+      let top = cell.top - 2
+      const maxTop = Math.max(8, vh - hh - 8)
+      if (top > maxTop) top = maxTop
+      if (top < 8) top = 8
+      return { left: Math.round(left), top: Math.round(top) }
+    }
+
+    /**
+     * 指针是否还停在「当前格子 ∪ 预览框」里(4px 容差,避免贴边移动时抖动)。
+     * 预览框也算停留区,否则从格子挪到大图上预览会闪掉。
+     */
+    function inKeepZone(zones, x, y, slack = 4) {
+      for (const z of zones || []) {
+        if (!z || z.right <= z.left || z.bottom <= z.top) continue
+        if (x >= z.left - slack && x <= z.right + slack && y >= z.top - slack && y <= z.bottom + slack) return true
+      }
+      return false
+    }
+
+    /**
+     * 表情格的 key:正常情况下 url 唯一,但同一张图被两个图库各收一份时就会撞;key 撞了
+     * React 的协调会错乱(实测筛到 2 张后网格里还剩两百多个旧格子),所以撞了按出现次序
+     * 补后缀 —— 顺序稳定,key 就稳定。
+     */
+    function uniqueKeys(rows) {
+      const seen = new Map()
+      return rows.map((m) => {
+        const base = String((m && (m.url || m.path)) || '')
+        const n = (seen.get(base) || 0) + 1
+        seen.set(base, n)
+        return base + '#' + n
+      })
+    }
+
     function makeMemeStore() {
       let open = false
       const subs = new Set()
@@ -1385,30 +1527,38 @@ window.__ModuleLoader__.load({
       const useLiveInput = typeof props.useInput === 'function' ? props.useInput : (() => null)
       const inputState = useLiveInput((s) => s)
       const open = React.useSyncExternalStore(store.subscribe, store.get)
-      const [memes, setMemes] = React.useState([])
-      const [packs, setPacks] = React.useState([]) // [{id,name,count}] 可切换的表情包组
-      const [packId, setPackId] = React.useState('') // '' = 跟随当前激活图库
+      const [data, setData] = React.useState(() => pickerCache || { packs: [], memes: [] })
+      const [loaded, setLoaded] = React.useState(!!pickerCache)
+      const [q, setQ] = React.useState('')
+      const [selPacks, setSelPacks] = React.useState([]) // 空 = 不筛:全部图库
+      const [selTags, setSelTags] = React.useState([])   // 空 = 不筛:全部情绪
+      const [hover, setHover] = React.useState(null)     // 悬浮预览:{ meme, cellRect }
+      const panelRef = React.useRef(null)
+      const previewRef = React.useRef(null)
+      const keepRef = React.useRef(null) // 预览停留区 [格子矩形, 预览框矩形],pointermove 判「还在不在」
+      const fitRef = React.useRef(0)
 
+      // 打开时拉全量(packId=all,带包前缀 url):多选筛选和情绪计数都要全量数据。
+      // 本机 5 个图库 1645 张约 0.3s / 454KB,换来「跨图库找图不用来回切」;
+      // 上一次的结果先顶上渲染,后台再刷新。
       React.useEffect(() => {
         if (!open) return
         let alive = true
-        const qs = new URLSearchParams()
-        if (packId) qs.set('packId', packId)
-        fetch('/dsh-memes-api?' + qs.toString())
+        fetch('/dsh-memes-api?packId=all')
           .then((r) => r.json())
           .then((res) => {
             if (!alive || !res || !res.ok) return
-            setPacks(res.packs || [])
-            setMemes(res.memes || [])
-            // 首次打开:锚定当前激活图库;切包后当前包不存在时回退激活包
-            setPackId((cur) => {
-              const valid = (res.packs || []).some((p) => p.id === cur)
-              return cur && valid ? cur : (res.packId || '')
-            })
+            const next = {
+              packs: Array.isArray(res.packs) ? res.packs : [],
+              memes: Array.isArray(res.memes) ? res.memes : [],
+            }
+            pickerCache = next
+            setData(next)
+            setLoaded(true)
           })
           .catch(() => {})
         return () => { alive = false }
-      }, [open, packId])
+      }, [open])
 
       // 点外部(非面板、非 😊 按钮)自动收起。
       React.useEffect(() => {
@@ -1421,6 +1571,95 @@ window.__ModuleLoader__.load({
         }
         document.addEventListener('pointerdown', onDown)
         return () => document.removeEventListener('pointerdown', onDown)
+      }, [open])
+
+      const viewport = (what) => {
+        try {
+          const root = document.documentElement
+          const v = what === 'w' ? root.clientWidth : root.clientHeight
+          return v || (what === 'w' ? window.innerWidth : window.innerHeight) || 0
+        } catch (e) { return 0 }
+      }
+
+      // 悬浮预览定位:默认浮在格子右侧,右侧放不下翻到左侧;垂直按实测的预览高度钳制 ——
+      // 面板 overflow:hidden,最下面一排不钳制就会被裁掉。算完把「格子 ∪ 预览框」记成停留区:
+      // 指针从格子挪到大图上不能闪掉,钳制改了位置也要同步更新,否则会被误判成「已经离开」。
+      const placePreview = () => {
+        const el = previewRef.current
+        if (!hover || !el || !hover.cellRect) { keepRef.current = null; return }
+        try {
+          const rect = el.getBoundingClientRect()
+          const pos = previewPosition(hover.cellRect, rect, { width: viewport('w'), height: viewport('h') })
+          el.style.left = pos.left + 'px'
+          el.style.top = pos.top + 'px'
+          keepRef.current = [hover.cellRect, el.getBoundingClientRect()]
+        } catch (e) { keepRef.current = null }
+      }
+      const useLayout = typeof React.useLayoutEffect === 'function' ? React.useLayoutEffect : React.useEffect
+      // 预览的关闭时机:指针离开「当前格子 ∪ 预览框」就关(4px 容差),分三处兜住 ——
+      // ① 离开格子:pointerleave 里按停留区判(指针挪到探出面板的大图上时不能误关);
+      //    「从格子 A 直接滑到格子 B」时 DOM 事件顺序是 leave(A) → enter(B),B 的那次
+      //    setHover 在后、同一批里胜出,所以不会闪。
+      // ② 停在探出去的预览上继续往外滑:面板收不到 pointermove(指针已经在面板外),所以
+      //    监听挂 document;落在格子上时交给 ①(否则会跟 enter 抢着清掉预览)。
+      // ③ 指针整个离开窗口:document 的 pointerleave。
+      useLayout(() => {
+        placePreview()
+        if (!hover) return
+        const onMove = (e) => {
+          const t = e.target
+          if (t && t.closest && t.closest('.mp-cell')) return
+          if (!inKeepZone(keepRef.current, e.clientX, e.clientY)) setHover(null)
+        }
+        const onLeave = () => setHover(null)
+        document.addEventListener('pointermove', onMove)
+        document.addEventListener('pointerleave', onLeave)
+        return () => {
+          document.removeEventListener('pointermove', onMove)
+          document.removeEventListener('pointerleave', onLeave)
+        }
+      }, [hover])
+
+      // 面板高度自适应:头/筛选不收缩,只有网格内部滚动。自然高度 = 清掉 max-height 后量到的
+      // 高度;可用高度 = 实测底边到窗口顶(上缘留 8px + 8px 余量)。取小就是最终高度。
+      const fitPanel = () => {
+        try {
+          const panel = panelRef.current
+            || (typeof document.querySelector === 'function' ? document.querySelector('.meme-picker') : null)
+          if (!panel) return
+          const prev = panel.style.maxHeight
+          panel.style.maxHeight = 'none'
+          const nat = Math.ceil(panel.getBoundingClientRect().height)
+          panel.style.maxHeight = prev
+          const avail = Math.floor(panel.getBoundingClientRect().bottom - 16)
+          const finalH = fitPanelHeight(nat, avail)
+          if (finalH !== fitRef.current) {
+            fitRef.current = finalH
+            panel.style.maxHeight = finalH + 'px'
+          }
+          // 排查用现场记录:控制台里一眼看出「新代码有没有加载 / 算出什么」
+          panel.setAttribute('data-meme-picker-fit', 'nat=' + nat + ' avail=' + avail + ' h=' + finalH)
+        } catch (e) { /* 纯增强:算不出来就退回 CSS 的 46vh,不能影响面板本身 */ }
+      }
+      useLayout(() => { if (open) fitPanel() })
+
+      React.useEffect(() => {
+        if (!open) return
+        const onResize = () => fitPanel()
+        const win = typeof window !== 'undefined' ? window : null
+        if (win && typeof win.addEventListener === 'function') win.addEventListener('resize', onResize)
+        let ro = null
+        try {
+          // 输入框变高(打多行)时宿主容器跟着变 → 面板跟着收紧
+          if (typeof ResizeObserver === 'function' && panelRef.current && panelRef.current.parentElement) {
+            ro = new ResizeObserver(() => fitPanel())
+            ro.observe(panelRef.current.parentElement)
+          }
+        } catch (e) { ro = null }
+        return () => {
+          if (win && typeof win.removeEventListener === 'function') win.removeEventListener('resize', onResize)
+          if (ro) ro.disconnect()
+        }
       }, [open])
 
       if (!open) return null
@@ -1438,31 +1677,107 @@ window.__ModuleLoader__.load({
         store.set(false)
       }
 
-      // 表情包组 tab:大肥鱼 / 官方 / 导入的包,点选即切换数据源
-      const cells = memes.map((m) => h('div', {
-        key: m.path, className: 'mp-cell', title: m.caption || m.file_name, onClick: () => send(m),
-        style: {
-          width: '74px', height: '74px',
-          backgroundImage: 'url(' + m.url + ')',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center center',
-          backgroundRepeat: 'no-repeat',
+      // 多选 chip:点一下选中(只看它),再点取消;一个都不选 = 不筛
+      const toggle = (list, setList, id) => setList(list.includes(id) ? list.filter((x) => x !== id) : list.concat([id]))
+      const clearAll = () => { setQ(''); setSelPacks([]); setSelTags([]) }
+      const hasFilter = !!(q.trim() || selPacks.length || selTags.length)
+
+      const tagCounts = pickerTagCounts(data.memes, selPacks)
+      const rows = pickerFilter(data.memes, selPacks, selTags, q)
+      const cells = rows.slice(0, PICKER_MAX_CELLS)
+      const packCounts = (() => {
+        const m = new Map()
+        for (const row of data.memes) {
+          const pid = packOfUrl(row.url)
+          if (pid) m.set(pid, (m.get(pid) || 0) + 1)
+        }
+        return m
+      })()
+      const packChips = data.packs
+        .map((p) => ({ id: p.id, name: p.name || p.id, count: packCounts.get(p.id) || p.count || 0 }))
+        .filter((p) => p.count > 0)
+
+      const gridCellKeys = uniqueKeys(cells)
+      const gridCells = cells.map((m, i) => h('div', {
+        key: gridCellKeys[i],
+        className: 'mp-cell',
+        title: m.caption || m.file_name,
+        onClick: () => send(m),
+        onPointerEnter: (e) => {
+          try { setHover({ meme: m, cellRect: e.currentTarget.getBoundingClientRect() }) } catch (err) { setHover(null) }
         },
+        // 离开格子:只有指针既不在格子里、也不在预览框里(见上面的停留区)才关
+        onPointerLeave: (e) => {
+          if (!inKeepZone(keepRef.current, e.clientX, e.clientY)) setHover(null)
+        },
+        style: { backgroundImage: 'url("' + m.url + '")' },
       }))
 
-      return h('div', { className: 'meme-picker', onClick: (e) => e.stopPropagation() },
-        h('div', { className: 'mp-tabs' },
-          packs.length === 0
-            ? h('div', { className: 'mp-empty', style: { padding: '4px 0' } }, '加载中…')
-            : packs.map((p) => h('button', {
-              type: 'button', key: p.id,
-              className: 'mp-tag' + (p.id === packId ? ' on' : ''),
-              onClick: () => setPackId(p.id),
-            }, p.name + ' (' + (p.count || 0) + ')')),
+      return h('div', {
+        className: 'meme-picker',
+        ref: panelRef,
+        'data-meme-picker': '1',
+        onClick: (e) => e.stopPropagation(),
+        // 滚动后格子的屏幕位置就不对了,预览跟着清掉(关闭时机见上面的 layout effect)
+        onWheel: () => setHover(null),
+      },
+        h('div', { className: 'mp-head' },
+          h('input', {
+            type: 'text', className: 'mp-search', value: q,
+            placeholder: '搜索描述 / 关键词…',
+            onChange: (e) => setQ(e.target.value),
+            onKeyDown: (e) => { if (e.key === 'Escape') { setQ(''); if (e.currentTarget && e.currentTarget.blur) e.currentTarget.blur() } },
+          }),
+          hasFilter ? h('button', { type: 'button', className: 'mp-clear', onClick: clearAll }, '清空') : null,
+          h('span', { className: 'mp-count' }, '共 ' + rows.length + ' 张'),
         ),
-        memes.length === 0
-          ? h('div', { className: 'mp-empty' }, '没有匹配的表情包')
-          : h('div', { className: 'mp-grid' }, cells),
+        // 两排多选 chip:都不选 = 不筛。情绪只列当前图库范围内真实存在的,按数量降序带计数。
+        h('div', { className: 'mp-filters' },
+          packChips.length
+            ? h('div', { className: 'mp-filter-row' },
+              h('span', { className: 'mp-filter-label' }, '图库'),
+              packChips.map((p) => h('button', {
+                type: 'button', key: p.id,
+                className: 'mp-tag' + (selPacks.includes(p.id) ? ' on' : ''),
+                title: '点一下只看这个图库;再点取消。都不点 = 全部图库',
+                onClick: () => toggle(selPacks, setSelPacks, p.id),
+              }, p.name, h('span', { className: 'n' }, String(p.count)))),
+            )
+            : null,
+          tagCounts.length
+            ? h('div', { className: 'mp-filter-row' },
+              h('span', { className: 'mp-filter-label' }, '情绪'),
+              tagCounts.map((t) => h('button', {
+                type: 'button', key: t.tag,
+                className: 'mp-tag' + (selTags.includes(t.tag) ? ' on' : ''),
+                title: '点一下只看这个情绪;再点取消。都不点 = 全部情绪',
+                onClick: () => toggle(selTags, setSelTags, t.tag),
+              }, tagZh(t.tag), h('span', { className: 'n' }, String(t.count)))),
+            )
+            : null,
+        ),
+        data.memes.length === 0
+          ? h('div', { className: 'mp-empty' }, loaded ? '还没有可发的表情包' : '加载中…')
+          : (rows.length === 0
+            ? h('div', { className: 'mp-empty' }, '没有匹配的表情包')
+            : h('div', { className: 'mp-grid' }, gridCells)),
+        rows.length > cells.length
+          ? h('div', { className: 'mp-hint' },
+            '只画了前 ' + cells.length + ' 张,还有 ' + (rows.length - cells.length) + ' 张——用搜索或筛选取一部分')
+          : null,
+        // 悬浮预览:大图(contain 不裁切)+ 情绪 + 描述 + 文件名;pointer-events:none 不挡点击
+        hover ? h('div', {
+          className: 'mp-hover', ref: previewRef,
+          style: {
+            left: (hover.cellRect ? hover.cellRect.right + 10 : 0) + 'px',
+            top: (hover.cellRect ? hover.cellRect.top - 2 : 0) + 'px',
+          },
+        },
+          h('div', { className: 'mp-hover-img', style: { backgroundImage: 'url("' + hover.meme.url + '")' } }),
+          hover.meme.tag ? h('span', { className: 'mp-hover-tag' }, tagZh(hover.meme.tag)) : null,
+          h('div', { className: 'mp-hover-cap' }, hover.meme.caption || hover.meme.file_name),
+          hover.meme.caption ? h('div', { className: 'mp-hover-file' }, hover.meme.file_name) : null,
+        ) : null,
       )
     }
 
@@ -1864,7 +2179,11 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.inject = inject
     // 纯函数导出仅用于回归测试(node --test),宿主/打包不消费
-    exports.__test = { foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions, createOwnedStyle, STYLE_OWNER_ID }
+    exports.__test = {
+      foldCaption, looseCaption, splitDescTokens, buildMemeSearch, matchDesc, compareVersions,
+      createOwnedStyle, STYLE_OWNER_ID,
+      packOfUrl, pickerTagCounts, pickerFilter, fitPanelHeight, previewPosition, inKeepZone, uniqueKeys,
+    }
     return module.exports
   },
 })

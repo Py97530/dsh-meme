@@ -269,6 +269,75 @@ function biGrams(tokens) {
   return [...new Set(out)]
 }
 
+/** keywords 的分词(与 keywordTokens 同分隔符,但保留原大小写:清洗后要原样写回) */
+const keywordWords = (s) => String(s || '').split(/[\s,，、;；/|]+/).filter(Boolean)
+
+/**
+ * 高频关键词清洗(issue #30 附带的建议)。
+ *
+ * 外部图库常把「角色大标签」写进每一条的 keywords:deepseek-chan 里 4 个词各出现在
+ * 1407/1407 条,搜「GPT」于是命中全库(official-001 的「表情包」占 70%、dafeiyu-001 的
+ * 「大肥鱼」占 100%,同类)。判定原则:出现在 ≥50% 条目里的词对检索零信息量 ——
+ * 比维护黑名单通用,导入时算一遍词频就行。
+ *
+ * 只在条目数 ≥ minRows 时动手:小图库里的重复词往往是真关键词
+ * (3 张猫图里的「猫」出现在 100% 条目里,但它是这张库唯一的检索入口)。
+ *
+ * @param {Array<{keywords?: string}>} rows 全部条目(只需要 keywords)
+ * @param {{threshold?: number, minRows?: number}} [opts]
+ * @returns {{total: number, drop: string[], cleaned: (string|null)[]}}
+ *   drop: 被剔掉的词(小写);cleaned: 每条清洗后的 keywords,没变的条目是 null。
+ */
+export function pruneCommonKeywords(rows, { threshold = 0.5, minRows = 8 } = {}) {
+  const list = Array.isArray(rows) ? rows : []
+  const total = list.length
+  const none = list.map(() => null)
+  if (total < minRows) return { total, drop: [], cleaned: none }
+  const words = list.map((row) => keywordWords(row && row.keywords))
+  const counts = new Map()
+  for (const toks of words) {
+    for (const w of new Set(toks.map((t) => t.toLowerCase()))) counts.set(w, (counts.get(w) || 0) + 1)
+  }
+  // 至少有两条会命中才剔:不然「过半」在小样本里可能落到 1 条上
+  const floor = Math.max(2, Math.ceil(total * threshold))
+  const drop = [...counts].filter(([, n]) => n >= floor).map(([w]) => w)
+  if (drop.length === 0) return { total, drop: [], cleaned: none }
+  const dropSet = new Set(drop)
+  return {
+    total,
+    drop,
+    cleaned: words.map((toks) => {
+      const keep = toks.filter((w) => !dropSet.has(w.toLowerCase()))
+      return keep.length === toks.length ? null : keep.join(' ')
+    }),
+  }
+}
+
+/**
+ * 对已落盘的图库做一次高频关键词清洗(导入/安装流程调用)。
+ * 只改 keywords 字段,图片和其它字段都不动;这是检索质量的增强,失败不该拖垮安装,
+ * 所以调用方一律 try/catch。
+ * @returns {{drop: string[], changed: number}} 剔掉的词与改动的条目数
+ */
+export function prunePackKeywords(indexPath, opts) {
+  const db = new DatabaseSync(indexPath)
+  try {
+    const rows = db.prepare("SELECT rowid AS rid, COALESCE(keywords, '') AS keywords FROM memes").all()
+    const { drop, cleaned } = pruneCommonKeywords(rows, opts)
+    if (drop.length === 0) return { drop: [], changed: 0 }
+    let changed = 0
+    const update = db.prepare('UPDATE memes SET keywords = ? WHERE rowid = ?')
+    for (let i = 0; i < rows.length; i++) {
+      if (cleaned[i] === null) continue
+      update.run(cleaned[i], rows[i].rid)
+      changed++
+    }
+    return { drop, changed }
+  } finally {
+    db.close()
+  }
+}
+
 const rowHay = (row) => (
   (row.tag || '') + ' ' + (row.caption || '') + ' ' + (row.keywords || '') + ' ' + (row.file_name || '')
 ).toLowerCase()
